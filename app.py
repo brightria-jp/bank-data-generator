@@ -66,7 +66,7 @@ def generate_bank_data(start, end, start_bal):
         if current_date.day == 25:
             amt = 280000
             balance += amt
-            data.append({"日付": current_date.strftime("%Y/%m/%d"), "摘要": "ギヨウヨ", "出金額": 0, "入金額": amt, "差し引き残高": balance})
+            data.append({"日付": current_date.strftime("%Y/%m/%d"), "摘要": "キュウヨ", "出金額": 0, "入金額": amt, "差し引き残高": balance})
 
         # 26日: クレジットカード引き落とし
         if current_date.day == 26:
@@ -78,12 +78,11 @@ def generate_bank_data(start, end, start_bal):
         if current_date.day == 27:
             amt = 85000
             balance -= amt
-            data.append({"日付": current_date.strftime("%Y/%m/%d"), "摘要": "ヤチン", "出金額": amt, "入金額": 0, "差し引き残高": balance})
+            data.append({"日付": current_date.strftime("%Y/%m/%d"), "摘要": "フリコミ　ヤチン", "出金額": amt, "入金額": 0, "差し引き残高": balance})
 
         # 月末（30日か31日）: 公共料金
         is_last_day = (current_date + timedelta(days=1)).month != current_date.month
         if is_last_day:
-            # 電気・ガス・水道をまとめて計上
             for utility in ["デンキダイ", "ガスダイ", "スイドウダイ"]:
                 amt = random.randint(3000, 12000)
                 balance -= amt
@@ -119,7 +118,6 @@ else:
                 month_end = current_month_start + relativedelta(months=1) - timedelta(days=1)
                 df_month, next_bal = generate_bank_data(current_month_start, month_end, current_bal)
                 
-                # AMEX風ヘッダー形式
                 header = pd.DataFrame([
                     ["銀行取引明細書", f"対象年月: {current_month_start.strftime('%Y/%m')}", "", "", ""],
                     ["口座名義", "SAMPLE USER", "", "", ""],
