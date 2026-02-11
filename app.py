@@ -3,115 +3,131 @@ import pandas as pd
 import numpy as np
 import random
 from datetime import datetime, timedelta
+from dateutil.relativedelta import relativedelta
+import io
+import zipfile
 
-st.set_page_config(page_title="銀行入出金ジェネレーター", layout="wide")
+st.set_page_config(page_title="銀行入出金明細ジェネレーター", layout="wide")
 
-# --- UIデザイン（前回好評だったスタイルを継承） ---
+# --- UIデザイン ---
 st.markdown("""
     <style>
     #MainMenu {visibility: hidden;}
     header {visibility: hidden;}
     footer {visibility: hidden;}
     [data-testid="stMetric"] {
-        background-color: #ffffff; border: 2px solid #d0d0d0; padding: 20px !important;
-        border-radius: 12px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); min-height: 160px;
+        background-color: #ffffff; border: 2px solid #e0e0e0; padding: 15px !important;
+        border-radius: 10px;
     }
-    [data-testid="stMetricLabel"] { color: #1a1a1a !important; font-weight: bold !important; font-size: 1.1rem !important; }
-    [data-testid="stMetricValue"] { color: #000000 !important; font-weight: 800 !important; }
     </style>
     """, unsafe_allow_html=True)
 
-st.title("💳 銀行入出金明細データジェネレーター")
+st.title("🏦 銀行入出金明細ジェネレーター")
 
 # --- サイドバー設定 ---
 with st.sidebar:
     st.header("⚙️ 明細設定")
-    init_balance = st.number_input("初期残高（円）", value=1000000, step=100000)
-    years = st.slider("生成期間（年）", 1, 3, 1)
-    max_rows = st.number_input("表示・保存する最大件数", min_value=1, max_value=5000, value=500)
     
-    st.divider()
-    user_type = st.radio("アカウント種別", ["個人口座", "法人口座"])
-    st.write("Ver.1.0: 銀行明細シミュレーター")
+    output_mode = st.radio("出力モード", ["全期間一括 (1ファイル)", "月別分割 (ZIP形式)"])
+    
+    now = datetime.now()
+    month_options = [(now - relativedelta(months=i)).strftime("%Y-%m") for i in range(24)]
+    
+    if output_mode == "全期間一括 (1ファイル)":
+        years = st.slider("生成期間（年）", 1, 5, 2)
+        start_dt = now - relativedelta(years=years)
+        end_dt = now
+    else:
+        start_month_str = st.selectbox("開始月", month_options, index=5)
+        end_month_str = st.selectbox("終了月", month_options, index=0)
+        start_dt = datetime.strptime(start_month_str, "%Y-%m")
+        end_dt = datetime.strptime(end_month_str, "%Y-%m")
 
-# --- 摘要データ ---
-texts_out = ["ｺﾝﾋﾞﾆ", "ｽｰﾊﾟｰﾏｰｹｯﾄ", "ｱﾏｿﾞﾝ ｶｽﾀﾏｰ", "ﾕﾆｸﾛ", "ﾈｯﾄﾌﾘｯｸｽ", "ﾄﾞｺﾓ ｹｰﾀｲ", "東京電力", "水道局"]
-texts_in = ["ﾌﾘｺﾐ ｶ) ﾃｽﾄ", "ﾒﾙｶﾘ ｳﾘｱｹ", "利息"]
+    initial_balance = st.number_input("初期残高（円）", value=500000)
 
 # --- データ生成ロジック ---
-today = datetime.now()
-start_date = today - timedelta(days=365 * years)
-current_date = start_date
-current_balance = init_balance
+def generate_bank_data(start, end, start_bal):
+    current_date = start
+    balance = start_bal
+    data = []
+    
+    while current_date <= end:
+        # 給与 (毎月25日)
+        if current_date.day == 25:
+            amt = 250000
+            balance += amt
+            data.append({"日付": current_date.strftime("%Y/%m/%d"), "摘要": "ギヨウヨ", "お預り金額": amt, "お支払い金額": 0, "差し引き残高": balance})
+        
+        # 家賃 (毎月末)
+        if (current_date + timedelta(days=1)).month != current_date.month:
+            amt = 80000
+            balance -= amt
+            data.append({"日付": current_date.strftime("%Y/%m/%d"), "摘要": "チチンダイ", "お預り金額": 0, "お支払い金額": amt, "差し引き残高": balance})
 
-data = []
-
-while current_date <= today:
-    # 毎日何かしら動くわけではない（土日祝やランダムな空白日）
-    if random.random() > 0.4: # 約60%の確率で取引発生
-        num_tx_today = random.randint(1, 3)
-        for _ in range(num_tx_today):
-            tx_type = ""
-            amount = 0
-            description = ""
+        # 日々の支払い (ランダム)
+        if random.random() > 0.7:
+            amt = random.randint(1000, 10000)
+            balance -= amt
+            data.append({"日付": current_date.strftime("%Y/%m/%d"), "摘要": random.choice(["自販機", "コンビニ", "スーパー", "ドラッグストア"]), "お預り金額": 0, "お支払い金額": amt, "差し引き残高": balance})
             
-            # 給与（毎月25日）
-            if current_date.day == 25:
-                tx_type = "入金"
-                amount = random.randint(250000, 400000)
-                description = "ｷﾞﾖｳﾖ"
-            # 家賃・固定費（毎月月末）
-            elif current_date.day == 28:
-                tx_type = "出金"
-                amount = random.randint(50000, 150000)
-                description = "ｼﾞﾕｳｷﾖﾋ/ﾌﾘｺﾐ"
-            # 通常のランダムな動き
-            else:
-                if random.random() > 0.8: # 時々入金がある
-                    tx_type = "入金"
-                    amount = random.randint(1000, 50000)
-                    description = random.choice(texts_in)
-                else:
-                    tx_type = "出金"
-                    amount = random.randint(100, 20000)
-                    description = random.choice(texts_out)
-            
-            if tx_type == "入金":
-                current_balance += amount
-                deposit = amount
-                withdrawal = 0
-            else:
-                current_balance -= amount
-                deposit = 0
-                withdrawal = amount
-            
-            data.append({
-                "取引日": current_date.strftime('%Y/%m/%d'),
-                "摘要": description,
-                "お預入れ額": deposit,
-                "お引き出し額": withdrawal,
-                "差し引き残高": current_balance
-            })
+        current_date += timedelta(days=1)
+    return pd.DataFrame(data), balance
 
-    current_date += timedelta(days=1)
+# --- 実行と表示 ---
+if start_dt > end_dt:
+    st.error("開始日は終了日より前である必要があります。")
+else:
+    if output_mode == "全期間一括 (1ファイル)":
+        df, final_bal = generate_bank_data(start_dt, end_dt, initial_balance)
+        
+        st.metric("現在の推定残高", f"¥{final_bal:,}")
+        st.dataframe(df.sort_values("日付", ascending=False), use_container_width=True)
+        
+        csv = df.to_csv(index=False).encode('utf-8-sig')
+        st.download_button("📩 銀行明細CSVをダウンロード", csv, "bank_statement_full.csv", "text/csv", use_container_width=True)
 
-# DataFrame化して最新分を切り出し
-df = pd.DataFrame(data)
-df = df.tail(max_rows)
+    else:
+        # 月別モード
+        zip_buffer = io.BytesIO()
+        current_month_start = start_dt
+        current_bal = initial_balance
+        
+        with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zf:
+            while current_month_start <= end_dt:
+                next_month = current_month_start + relativedelta(months=1)
+                month_end = next_month - timedelta(days=1)
+                
+                # その月のデータを生成
+                df_month, next_bal = generate_bank_data(current_month_start, month_end, current_bal)
+                
+                # 月ごとのヘッダー情報を追加
+                header = pd.DataFrame([
+                    ["銀行明細", f"対象月: {current_month_start.strftime('%Y/%m')}", "", "", ""],
+                    ["初期残高", f"{current_bal:,}", "", "", ""],
+                    ["", "", "", "", ""],
+                    ["日付", "摘要", "お預り金額", "お支払い金額", "差し引き残高"]
+                ])
+                
+                # 明細と結合
+                final_df = pd.concat([header, df_month], ignore_index=True)
+                
+                # 画面表示
+                with st.expander(f"📂 {current_month_start.strftime('%Y-%m')} の明細プレビュー"):
+                    st.dataframe(df_month, use_container_width=True)
+                
+                # CSVとしてZIPに追加
+                csv_data = final_df.to_csv(index=False, header=False).encode('utf-8-sig')
+                zf.writestr(f"bank_statement_{current_month_start.strftime('%Y%m')}.csv", csv_data)
+                
+                # 次の月へ
+                current_bal = next_bal
+                current_month_start = next_month
 
-# --- UI表示 ---
-latest = df.iloc[-1]
-m1, m2, m3 = st.columns(3)
-with m1: st.metric("現在の最終残高", f"¥{int(latest['差し引き残高']):,}")
-with m2: st.metric("期間中合計入金", f"¥{int(df['お預入れ額'].sum()):,}")
-with m3: st.metric("取引件数", f"{len(df)}件")
-
-st.divider()
-st.subheader("📈 残高推移グラフ")
-st.line_chart(df.set_index("取引日")["差し引き残高"])
-
-st.subheader("📋 明細プレビュー（最新順）")
-st.dataframe(df.sort_index(ascending=False), use_container_width=True)
-
-csv = df.to_csv(index=False).encode('utf-8-sig') # 日本語Excel対策でutf-8-sig
-st.download_button("📩 銀行明細CSVをダウンロード", csv, f"bank_statement_{today.strftime('%Y%m%d')}.csv", "text/csv", use_container_width=True)
+        st.divider()
+        st.download_button(
+            label="📩 月別明細CSV（ZIP形式）を一括ダウンロード",
+            data=zip_buffer.getvalue(),
+            file_name=f"bank_statements_{datetime.now().strftime('%Y%m%d')}.zip",
+            mime="application/zip",
+            use_container_width=True
+        )
